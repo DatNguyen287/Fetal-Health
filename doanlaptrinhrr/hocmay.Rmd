@@ -1,0 +1,697 @@
+---
+title: "hocmay"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+```{r import_data, echo=FALSE}
+data<- read.csv("fetal_health.csv", sep = ',')
+head(df,5)
+```
+
+```{r}
+library(dplyr)
+library(caret)
+
+# Đảm bảo dataframe đã được load
+data <- read.csv("fetal_health.csv")  # Thay bằng đường dẫn thực tế
+
+# Kiểm tra tên cột
+print(colnames(data))
+
+# Chọn cột TỰ ĐỘNG (cách an toàn)
+features <- setdiff(colnames(data), "fetal_health")
+
+# Chuẩn hóa dữ liệu
+preproc <- preProcess(data[, features], method = c("center", "scale"))
+
+X <- predict(preproc, data) %>% 
+  select(all_of(features)) %>% 
+  as.data.frame()
+
+y <- data$fetal_health
+
+# Biến mục tiêu
+y <- data$fetal_health
+
+# Hiển thị vài hàng đầu của dữ liệu đã chuẩn hóa
+head(X)
+
+# Biến mục tiêu
+y <- as.factor(data$fetal_health)
+
+# 3. Chia dữ liệu thành tập huấn luyện và tập kiểm tra
+set.seed(42)
+trainIndex <- createDataPartition(y, p = 0.7, list = FALSE, times = 1)
+X_train <- X[trainIndex, ]
+X_test <- X[-trainIndex, ]
+y_train <- as.factor(y[trainIndex])
+y_test <- as.factor(y[-trainIndex])
+
+
+# In kích thước của các tập
+cat("Kích thước - X_train:", dim(X_train), "X_test:", dim(X_test), 
+    "y_train:", length(y_train), "y_test:", length(y_test), "\n")
+
+# Cài đặt gói nếu cần
+if (!require("class")) install.packages("class")
+if (!require("caret")) install.packages("caret")
+library(class)
+library(caret)
+library(Metrics)
+
+# Huấn luyện và dự đoán bằng KNN (ví dụ k = 5)
+k <- 2
+pred_knn <- knn(train = X_train, test = X_test, cl = y_train, k = k)
+
+# Tính độ chính xác
+accuracy <- sum(pred_knn == y_test) / length(y_test)
+cat("Baseline K-Nearest Neighbors:", round(accuracy, 3), "\n")
+
+
+set.seed(42)
+cv_control <- trainControl(method = "cv", 
+                           number = 3, 
+                           classProbs = FALSE)
+
+# Huấn luyện mô hình KNN với cross-validation
+knn_cv_model <- train(x = X_train, 
+                      y = y_train, 
+                      method = "knn", 
+                      trControl = cv_control,
+                      tuneLength = 1)  # hoặc tuneGrid nếu muốn đặt k cụ thể
+
+# Lấy điểm cross-validation (accuracy)
+cv_scores <- knn_cv_model$resample$Accuracy
+
+# In kết quả
+cat("Scores (Cross-validation) for K-Nearest Neighbors model:\n")
+print(cv_scores)
+cat("CrossValMeans:", round(mean(cv_scores), 3), "\n")
+cat("CrossValStandard Deviation:", round(sd(cv_scores), 3), "\n")
+
+# Đảm bảo y_train là factor
+y_train <- as.factor(y_train)
+
+# Thiết lập lại cross-validation
+set.seed(42)
+cv_control <- trainControl(method = "cv", number = 3)
+
+# Tạo lưới tham số tương đương với Python
+grid_knn <- expand.grid(
+  k = 1:20  # 'k' tương đương với 'n_neighbors' trong Python
+)
+
+# Thực hiện Grid Search (caret tự động tìm mô hình tốt nhất theo accuracy)
+knn_grid_model <- train(
+  x = X_train,
+  y = y_train,
+  method = "knn",
+  trControl = cv_control,
+  tuneGrid = grid_knn,
+  metric = "Accuracy"
+)
+
+# Xem kết quả tốt nhất
+print(knn_grid_model)
+
+# 1. In tham số tốt nhất (đã tìm được từ caret::train)
+best_k <- knn_grid_model$bestTune$k
+cat("Best estimator for KNN model: k =", best_k, "\n")
+cat("Best accuracy from CV:", max(knn_grid_model$results$Accuracy), "\n")
+
+# 2. Huấn luyện lại mô hình với tham số tốt nhất (k = best_k)
+final_knn_pred <- knn(train = X_train, test = X_test, cl = y_train, k = best_k)
+
+# 3. Tính toán độ lỗi và độ chính xác
+# Định nghĩa hàm tính MSE và RMSE
+mse <- function(actual, predicted) {
+  mean((actual - predicted)^2)
+}
+
+rmse <- function(actual, predicted) {
+  sqrt(mse(actual, predicted))
+}
+
+# Hàm tính R^2
+r2_score <- function(actual, predicted) {
+  ss_res <- sum((actual - predicted)^2)
+  ss_tot <- sum((actual - mean(actual))^2)
+  1 - (ss_res / ss_tot)
+}
+
+# Đảm bảo rằng y_test và final_knn_pred là numeric
+y_test_numeric <- as.numeric(y_test)
+final_knn_pred_numeric <- as.numeric(final_knn_pred)
+
+# Tính MSE, RMSE và R^2 trên tập kiểm tra
+mse_knn <- mse(actual = y_test_numeric, predicted = final_knn_pred_numeric)
+rmse_knn <- rmse(actual = y_test_numeric, predicted = final_knn_pred_numeric)
+
+# Tính R^2 cho tập kiểm tra
+r2_test <- r2_score(actual = y_test_numeric, predicted = final_knn_pred_numeric)
+
+cat("Mean Square Error for K_Nearest Neighbor =", round(mse_knn, 3), "\n")
+cat("Root Mean Square Error for K_Nearest Neighbor =", round(rmse_knn, 3), "\n")
+cat("R^2 on testing set =", round(r2_test, 3), "\n")
+
+
+# 4. Classification Report
+cat("Classification Report:\n")
+confusion <- confusionMatrix(data = final_knn_pred, reference = y_test)
+print(confusion)
+
+# 5. Confusion Matrix riêng
+cat("Confusion Matrix:\n")
+print(confusion$table)
+
+
+# Cài nếu cần
+# install.packages(c("caret", "ggplot2", "reshape2"))
+
+library(caret)
+library(ggplot2)
+library(reshape2)
+
+# Confusion matrix (table)
+cm <- confusionMatrix(data = final_knn_pred, reference = y_test)
+
+# Trích xuất bảng confusion và ép về data frame
+cm_table <- as.data.frame(cm$table)
+colnames(cm_table) <- c("Predicted", "Actual", "Freq")
+
+# Chuyển nhãn nếu cần
+levels(cm_table$Predicted) <- c("Normal", "Suspect", "Pathological")
+levels(cm_table$Actual) <- c("Normal", "Suspect", "Pathological")
+
+# Vẽ heatmap
+ggplot(data = cm_table, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 5) +
+  scale_fill_gradient(low = "#D9F0D3", high = "#006D2C") +  # tương đương cmap = "BuGn"
+  labs(title = "Confusion Matrix", x = "Predicted labels", y = "True labels") +
+  theme_minimal()
+
+```
+
+```{r}
+# Giả sử mô hình đã huấn luyện là knn_grid_model
+save(knn_grid_model, file = "knn_grid_model.RData")
+best_params_knn <- knn_grid_model$bestTune
+save(best_params_knn, file = "best_params_knn.RData")
+# Dự đoán với mô hình KNN
+final_knn_pred <- knn(train = X_train, test = X_test, cl = y_train, k = knn_grid_model$bestTune$k)
+
+
+metrics_df <- data.frame(
+  MSE = mse_knn,
+  RMSE = rmse_knn,
+  R2_Train = r2_train,
+  R2_Test = r2_test
+)
+
+# Lưu vào CSV
+write.csv(metrics_df, "model_metrics.csv", row.names = FALSE)
+
+saveRDS(knn_grid_model, file = "knn_model.rds")
+
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+# Cài đặt gói nếu chưa có
+if (!require("randomForest")) install.packages("randomForest")
+if (!require("caret")) install.packages("caret")
+
+library(randomForest)
+library(caret)
+
+# Huấn luyện mô hình Random Forest (baseline)
+set.seed(42)
+rf_model <- randomForest(x = X_train, y = y_train)
+pred_rf <- predict(rf_model, X_test)
+
+# Độ chính xác trên tập test
+accuracy_rf <- mean(pred_rf == y_test)
+cat("Baseline Random Forest:", round(accuracy_rf, 3), "\n")
+
+# Cross-validation
+set.seed(42)
+cv_control <- trainControl(method = "cv", number = 3)
+
+# Huấn luyện với cross-validation
+rf_cv_model <- train(x = X_train, y = y_train,
+                     method = "rf",
+                     trControl = cv_control,
+                     tuneLength = 3,
+                     metric = "Accuracy")
+
+# Kết quả cross-validation
+print(rf_cv_model$resample$Accuracy)
+cat("CrossValMeans:", round(mean(rf_cv_model$resample$Accuracy), 3), "\n")
+cat("CrossValStandard Deviation:", round(sd(rf_cv_model$resample$Accuracy), 3), "\n")
+
+# Grid search để tìm tham số tối ưu
+set.seed(42)
+grid <- expand.grid(
+  .mtry = c(2, 3, 4)  # số lượng biến được xem xét tại mỗi lần split (cần điều chỉnh theo số feature)
+)
+
+rf_grid_model <- train(x = X_train, y = y_train,
+                       method = "rf",
+                       trControl = cv_control,
+                       metric = "Accuracy",
+                       tuneGrid = grid,
+                       ntree = 200)
+
+# In mô hình tốt nhất
+print(rf_grid_model$bestTune)
+cat("Best Accuracy:", max(rf_grid_model$results$Accuracy), "\n")
+
+# Huấn luyện mô hình Random Forest với tham số giống như Python
+set.seed(42)
+rf_final <- randomForest(x = X_train, 
+                         y = y_train, 
+                         ntree = 100, 
+                         mtry = sqrt(ncol(X_train)),  # mtry tương tự tính feature khi split
+                         nodesize = 1)  # tương đương min_samples_leaf
+
+# Dự đoán
+pred_rf <- predict(rf_final, newdata = X_test)
+
+# Chuyển y_test và pred về factor cùng levels nếu cần
+y_test <- factor(y_test, levels = levels(pred_rf))
+
+# Tính MSE và RMSE
+mse_rf <- mean((as.numeric(pred_rf) - as.numeric(y_test))^2)
+rmse_rf <- sqrt(mse_rf)
+
+# Chuyển cả dự đoán và nhãn thực tế sang số
+pred_train_rf <- as.numeric(predict(rf_final, newdata = X_train))
+y_train_num   <- as.numeric(y_train)
+
+pred_test_rf <- as.numeric(pred_rf)
+y_test_num   <- as.numeric(y_test)
+
+# Tính R^2
+r2_train <- cor(pred_train_rf, y_train_num)^2
+r2_test  <- cor(pred_test_rf,  y_test_num)^2
+
+
+# In kết quả
+cat("Mean Square Error for Random Forest =", round(mse_rf, 3), "\n")
+cat("Root Mean Square Error for Random Forest =", round(rmse_rf, 3), "\n")
+cat("R^2 (train) =", round(r2_train, 3), "\n")
+cat("R^2 (test) =", round(r2_test, 3), "\n")
+
+# Classification report và confusion matrix
+cat("Classification Report:\n")
+confusion <- confusionMatrix(pred_rf, y_test)
+print(confusion)
+
+# In ma trận nhầm lẫn
+cat("Confusion Matrix:\n")
+print(confusion$table)
+
+
+# Tạo confusion matrix
+conf_mat <- confusionMatrix(pred_rf, y_test)
+
+# Lấy ma trận nhầm lẫn
+cm_table <- conf_mat$table
+
+# Chuyển về dataframe để ggplot vẽ được
+cm_df <- as.data.frame(cm_table)
+colnames(cm_df) <- c("True", "Predicted", "Freq")
+
+# Vẽ biểu đồ heatmap
+ggplot(cm_df, aes(x = Predicted, y = True, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 5) +
+  scale_fill_gradient(low = "#DFF5E1", high = "#1C8B4C") +
+  labs(title = "Confusion Matrix",
+       x = "Predicted labels",
+       y = "True labels") +
+  scale_x_discrete(labels = c("Normal", "Suspect", "Pathological")) +
+  scale_y_discrete(labels = c("Normal", "Suspect", "Pathological")) +
+  theme_minimal()
+
+saveRDS(rf_final, file = "random_forest_model.rds")
+
+```
+```{r}
+# Load required libraries
+library(caret)
+library(ggplot2)
+library(reshape2)
+
+# Load data
+X_train <- read.csv("X_train.csv")
+y_train <- read.csv("y_train.csv")$x
+X_test <- read.csv("X_test.csv")
+y_test <- read.csv("y_test.csv")$x
+
+# Check for NA values
+cat("NA in X_train:", sum(is.na(X_train)), "\n")
+cat("NA in y_train:", sum(is.na(y_train)), "\n")
+cat("NA in X_test:", sum(is.na(X_test)), "\n")
+cat("NA in y_test:", sum(is.na(y_test)), "\n")
+
+# Convert y_train and y_test to binary and set valid factor levels
+# Map 1 to 0 (e.g., "No"), and 2/3 to 1 (e.g., "Yes")
+y_train_binary <- ifelse(y_train == 1, 0, 1)
+y_train_factor <- factor(y_train_binary, levels = c(0, 1), labels = c("No", "Yes"))
+y_test_binary <- ifelse(y_test == 1, 0, 1)
+y_test_factor <- factor(y_test_binary, levels = c(0, 1), labels = c("No", "Yes"))
+
+# Combine X_train and y_train into a data frame
+train_data <- data.frame(X_train, y = y_train_factor)
+
+# Fit logistic regression model
+logistic_regression_mod <- glm(y ~ ., data = train_data, family = binomial)
+
+# Set up stratified k-fold cross-validation (3 folds, random state = 42)
+set.seed(42)
+cv_method <- trainControl(method = "cv", number = 3, savePredictions = TRUE, classProbs = TRUE)
+
+# Cross-validate Logistic Regression model
+cv_model <- train(y ~ ., data = train_data, 
+                  method = "glm", family = binomial,
+                  trControl = cv_method,
+                  metric = "Accuracy")
+
+# Extract cross-validation scores
+scores_Logistic <- cv_model$resample$Accuracy
+
+# Print results
+cat("Scores (Cross validate) for Logistic Regression model:\n")
+print(scores_Logistic)
+cat(sprintf("CrossValMeans: %.3f\n", mean(scores_Logistic)))
+cat(sprintf("CrossValStandard Deviation: %.3f\n", sd(scores_Logistic)))
+
+# Define parameter grid
+# C in scikit-learn is inverse of regularization strength; in glmnet, we use lambda (smaller lambda = less regularization, like larger C)
+param_grid <- expand.grid(
+  alpha = 1,  # Lasso penalty (L1 regularization), similar to scikit-learn's default
+  lambda = 1/c(0.01, 0.1, 1, 10, 100)  # Inverse of C values
+)
+
+# Set up stratified 3-fold cross-validation
+set.seed(42)
+cv_method <- trainControl(method = "cv", number = 3, savePredictions = TRUE, classProbs = TRUE, verboseIter = TRUE)
+
+# Perform grid search with logistic regression using glmnet
+grid_search <- train(y ~ ., 
+                     data = train_data, 
+                     method = "glmnet", 
+                     family = "binomial",
+                     tuneGrid = param_grid,
+                     trControl = cv_method,
+                     metric = "Accuracy")
+
+# Get best estimator and parameters
+best_estimator <- grid_search$finalModel
+best_params <- grid_search$bestTune
+best_score <- max(grid_search$results$Accuracy)
+
+# Print results
+cat("Best estimator for LR model:\n")
+print(best_estimator)
+cat("Best parameter values for LR model:\n")
+print(best_params)
+cat(sprintf("Best score for LR model: %.3f\n", best_score))
+
+# Predict on test set
+pred_lr <- predict(grid_search, newdata = X_test, type = "raw")
+
+# Create confusion matrix
+cat("Confusion Matrix for Logistic Regression:\n")
+conf_mat_lr <- confusionMatrix(pred_lr, y_test_factor)
+print(conf_mat_lr)
+
+# Plot heatmap
+cm_df_lr <- as.data.frame(conf_mat_lr$table)
+colnames(cm_df_lr) <- c("Prediction", "Reference", "Freq")
+ggplot(data = cm_df_lr, aes(x = Prediction, y = Reference)) +
+  geom_tile(aes(fill = Freq), color = "white") +
+  scale_fill_gradient(low = "white", high = "darkgreen") +
+  geom_text(aes(label = Freq), color = "black", size = 5) +
+  labs(
+    title = "Confusion Matrix for Logistic Regression",
+    x = "Predicted Labels",
+    y = "True Labels"
+  ) +
+  scale_x_discrete(labels = c("No", "Yes")) +
+  scale_y_discrete(labels = c("No", "Yes")) +
+  theme_minimal()
+```
+```{r}
+saveRDS(grid_search, file = "logistic_model.rds")
+
+```
+
+Vẽ đường học tập 
+```{r}
+library(caret)
+library(ggplot2)
+
+plot_learning_curve <- function(model, X, y, title = "Learning Curve", 
+                                train_sizes = seq(0.1, 1.0, length.out = 5), 
+                                cv = 5, ylim = NULL) {
+  
+  results <- data.frame()
+  n <- nrow(X)
+
+  for (size in train_sizes) {
+    set.seed(123)
+    idx <- sample(1:n, size = floor(size * n))
+    
+    trainX <- X[idx, ]
+    trainY <- y[idx]
+    
+    train_control <- trainControl(method = "cv", number = cv)
+    
+    model_fit <- train(trainX, trainY, method = model, trControl = train_control)
+    
+    train_score <- max(model_fit$results$Accuracy)
+    
+    # đánh giá trên tập kiểm tra ngoài (toàn bộ dữ liệu - tập con train)
+    test_idx <- setdiff(1:n, idx)
+    test_pred <- predict(model_fit, newdata = X[test_idx, ])
+    test_score <- sum(test_pred == y[test_idx]) / length(test_idx)
+    
+    results <- rbind(results, data.frame(TrainSize = length(idx),
+                                         TrainScore = train_score,
+                                         TestScore = test_score))
+  }
+  
+  p <- ggplot(results, aes(x = TrainSize)) +
+    geom_line(aes(y = TrainScore, color = "Train")) +
+    geom_line(aes(y = TestScore, color = "Validation")) +
+    labs(title = title, x = "Training examples", y = "Accuracy") +
+    scale_color_manual(name = "Legend", values = c("Train" = "#80CBC4", "Validation" = "#00897B")) +
+    theme_minimal()
+  
+  if (!is.null(ylim)) {
+    p <- p + ylim(ylim)
+  }
+
+  print(p)
+}
+```
+
+``` {r}
+# Hàm tạo learning curve
+generate_learning_curve <- function(X, y, k_best, training_sizes = seq(0.1, 1.0, by = 0.1)) {
+  set.seed(42)
+  results <- data.frame(TrainSize = numeric(), Accuracy = numeric())
+
+  total_rows <- nrow(X)
+
+  for (size in training_sizes) {
+    n_train <- floor(size * total_rows)
+    idx <- sample(1:total_rows, n_train)
+
+    X_train_sub <- X[idx, ]
+    y_train_sub <- y[idx]
+
+    # Huấn luyện mô hình KNN trên tập con
+    pred <- knn(train = X_train_sub, test = X_train_sub, cl = y_train_sub, k = k_best)
+
+    acc <- sum(pred == y_train_sub) / length(y_train_sub)
+
+    results <- rbind(results, data.frame(TrainSize = n_train, Accuracy = acc))
+  }
+
+  return(results)
+}
+# Tạo đường học cho mô hình KNN với k tốt nhất
+learning_curve_knn <- generate_learning_curve(X_train, y_train, best_k)
+
+# Vẽ đường học
+ggplot(learning_curve_knn, aes(x = TrainSize, y = Accuracy)) +
+  geom_point(color = "#1976D2", size = 3) +
+  geom_line(color = "#0D47A1", size = 1) +
+  ggtitle("Learning Curve for KNN") +
+  xlab("Training Set Size") +
+  ylab("Training Accuracy") +
+  theme_minimal()
+
+```
+```{r}
+# Load required packages
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("caret")) install.packages("caret")
+library(ggplot2)
+library(caret)
+
+# Function to compute and plot learning curve
+plot_learning_curve <- function(model, title = "Learning Curve", X, y, cv_folds = 5, metric = "Accuracy") {
+  # Ensure y is a factor to treat it as a classification problem
+  y <- as.factor(y)
+  
+  # Initialize vectors to store results
+  train_sizes <- seq(0.1, 1.0, by = 0.1) * nrow(X)  # 10% to 100% of training data
+  train_scores <- numeric(length(train_sizes))
+  test_scores <- numeric(length(train_sizes))
+  
+  # Set seed for reproducibility
+  set.seed(42)
+  
+  # Loop over different training set sizes
+  for (i in seq_along(train_sizes)) {
+    # Subset training data
+    n_samples <- round(train_sizes[i])
+    indices <- sample(1:nrow(X), n_samples)
+    X_subset <- X[indices, , drop = FALSE]
+    y_subset <- y[indices]
+    
+    # Define cross-validation control
+    cv_control <- trainControl(method = "cv", number = cv_folds)
+    
+    # Train model on subset
+    model_fit <- train(
+      x = X_subset,
+      y = y_subset,
+      method = "rf",
+      trControl = cv_control,
+      tuneGrid = data.frame(mtry = model$bestTune$mtry),  # Use best mtry from grid search
+      ntree = 200,
+      metric = metric
+    )
+    
+    # Store mean training and validation scores
+    train_scores[i] <- mean(model_fit$results$Accuracy)
+    test_scores[i] <- mean(model_fit$resample$Accuracy)
+  }
+  
+  # Create data frame for plotting
+  learning_curve_data <- data.frame(
+    Training_Size = rep(train_sizes, 2),
+    Score = c(train_scores, test_scores),
+    Set = rep(c("Train", "Validation"), each = length(train_sizes))
+  )
+  
+  # Plot learning curve
+  ggplot(learning_curve_data, aes(x = Training_Size, y = Score, color = Set)) +
+    geom_line(size = 1) +
+    geom_point(size = 2) +
+    labs(
+      title = title,
+      x = "Training Set Size",
+      y = metric
+    ) +
+    scale_color_manual(values = c("Train" = "#1C8B4C", "Validation" = "#FF6F61")) +
+    theme_minimal() +
+    theme(legend.position = "top")
+}
+
+# Example usage with your grid search model
+plot_learning_curve(
+  model = rf_grid_model,
+  title = "Random Forest Learning Curve",
+  X = X_train,
+  y = y_train,
+  cv_folds = 3,  # Match your cv_control (3-fold CV)
+  metric = "Accuracy"
+)
+
+```
+
+```{r}
+library(caret)
+library(glmnet)
+library(ggplot2)
+
+# Dữ liệu ban đầu
+X <- X_train
+y <- y_train_factor
+
+# Chia dữ liệu thành tập huấn luyện tăng dần
+set.seed(42)
+training_sizes <- seq(0.1, 1.0, by = 0.1)
+train_accuracies <- c()
+cv_accuracies <- c()
+
+for (size in training_sizes) {
+  cat(sprintf("Training size: %.0f%%\n", size * 100))
+  
+  # Lấy mẫu ngẫu nhiên
+  sample_index <- sample(1:nrow(X), size = floor(size * nrow(X)))
+  X_subset <- X[sample_index, ]
+  y_subset <- y[sample_index]
+  subset_data <- data.frame(X_subset, y = y_subset)
+  
+  # Huấn luyện Logistic Regression với glmnet (alpha=1 là Lasso)
+  model <- train(y ~ ., 
+                 data = subset_data,
+                 method = "glmnet",
+                 family = "binomial",
+                 tuneGrid = expand.grid(alpha = 1, lambda = 1 / 10), # tương đương C=10
+                 trControl = trainControl(method = "cv", number = 3),
+                 metric = "Accuracy")
+  
+  # Độ chính xác huấn luyện
+  train_preds <- predict(model, newdata = subset_data)
+  train_acc <- mean(train_preds == y_subset)
+  
+  # Độ chính xác cross-validation
+  cv_acc <- max(model$results$Accuracy)
+  
+  # Lưu kết quả
+  train_accuracies <- c(train_accuracies, train_acc)
+  cv_accuracies <- c(cv_accuracies, cv_acc)
+}
+
+# Tạo dataframe cho ggplot
+df_learning <- data.frame(
+  TrainingSize = floor(training_sizes * nrow(X)),
+  TrainAccuracy = train_accuracies,
+  CVAccuracy = cv_accuracies
+)
+
+# Vẽ Learning Curve
+ggplot(df_learning, aes(x = TrainingSize)) +
+  geom_line(aes(y = TrainAccuracy, color = "Train Accuracy"), size = 1) +
+  geom_point(aes(y = TrainAccuracy, color = "Train Accuracy"), size = 2) +
+  geom_line(aes(y = CVAccuracy, color = "CV Accuracy"), size = 1) +
+  geom_point(aes(y = CVAccuracy, color = "CV Accuracy"), size = 2) +
+  labs(title = "Learning Curve - Logistic Regression",
+       x = "Training Set Size",
+       y = "Accuracy") +
+  scale_color_manual(values = c("Train Accuracy" = "blue", "CV Accuracy" = "darkgreen")) +
+  theme_minimal()
+```

@@ -1,0 +1,440 @@
+---
+title: "SUCKHOETHAINHI"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# List các gói cần cài đặt
+packages <- c("knitr", "readr", "reshape2", "corrplot", "dplyr", "gridExtra", "caret", "ROSE", "naivebayes", "yardstick", "party", "rpart", "rpart.plot", "randomForest" , "reshape2", "ranger")
+
+# Kiểm tra và cài đặt gói nếu chưa tồn tại
+for (package in packages) {
+  if (!requireNamespace(package, quietly = TRUE)) {
+    install.packages(package)
+  }
+}
+library(readr)
+library(knitr)
+library(ggplot2)
+library(corrplot)
+library(dplyr)
+library(gridExtra)
+library(caret)
+library(ROSE)
+library(naivebayes)
+library(yardstick)
+library(party)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(reshape2)
+library(ranger)
+```
+
+## **1. Import Dataset**
+
+```{r import_data, echo=FALSE}
+data<- read.csv("fetal_health.csv", sep = ',')
+head(df,5)
+```
+
+```{r import_data, echo=FALSE}
+cat("Dataset Columns:\n", colnames(data), "\n")
+
+```
+***Ở đây có thể thấy rằng dữ liệu gồm các biến phân loại và biến liên tục***
+
+```{r summary, echo=FALSE}
+summary.default(data)
+```
+#Kiểm tra và đếm giá trị thiếu (NA)
+
+```{r summary, echo=FALSE}
+# Tìm các cột có ít nhất một NA
+miss_cols <- names(data)[colSums(is.na(data)) > 0]
+
+# In giá trị thiếu
+cat("Missing values:\n")
+if (length(miss_cols) > 0) {
+  print(colSums(is.na(data))[miss_cols])
+} else {
+  cat("None\n")
+}
+
+# In giá trị null (trong R, NA tương đương null, nên lặp lại kết quả)
+cat("Null values:\n")
+if (length(miss_cols) > 0) {
+  print(colSums(is.na(data))[miss_cols])
+} else {
+  cat("None\n")
+}
+```
+## **2. Data Analys**
+
+#### Xác minh mối tương quan giữa các biến của dữ liệu.
+```{r}
+# 2. Tính số giá trị không thiếu (non-NA) trong mỗi cột
+non_null_counts <- colSums(!is.na(data))
+
+# Kiểm tra giá trị tính toán
+cat("Non-null counts per column:\n")
+print(non_null_counts)
+
+# 3. Tạo data frame để vẽ biểu đồ
+plot_data <- data.frame(
+  Column = names(non_null_counts),
+  Non_Null_Count = as.numeric(non_null_counts)
+)
+
+# 4. Vẽ biểu đồ thanh bằng ggplot2
+ggplot(plot_data, aes(x = Column, y = Non_Null_Count)) +
+  geom_bar(stat = "identity", fill = "#5F9EA0", width = 0.6) +
+  labs(title = "Null Count Analysis", x = "Columns", y = "Non-Null Count") +
+  scale_y_continuous(limits = c(0, nrow(data)), breaks = seq(0, nrow(data), by = 500)) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 8),
+    plot.title = element_text(hjust = 0.5),
+    axis.title = element_text(size = 10),
+  )
+```
+
+```{r cars}
+#Kiểm tra dữ liệu
+cat("Kích thước của dữ liệu:", dim(data), "\n")
+if (nrow(data) == 0) stop("Dữ liệu rỗng. Vui lòng kiểm tra đường dẫn tệp.")
+
+#Chỉ áp dụng cho các cột số
+cot_so <- sapply(data, is.numeric)
+thong_ke <- psych::describe(data[, cot_so])
+
+# Hiển thị kết quả
+cat("Tóm tắt thống kê:\n")
+print(thong_ke)
+
+
+```
+```{r cars}
+# Chuyển cột fetal_health thành factor nếu nó chưa phải là factor
+data$fetal_health <- as.factor(data$fetal_health)
+
+# Đếm số lượng các trạng thái
+fetal_health_counts <- table(data$fetal_health)
+
+# In kết quả đếm
+print(fetal_health_counts)
+
+# Tính số lượng cho từng loại trạng thái
+normal <- sum(data$fetal_health == "Normal")
+suspect <- sum(data$fetal_health == "Suspect")
+pathological <- sum(data$fetal_health == "Pathological")
+
+# In kết quả
+cat("Normal:", normal, "\n")
+cat("Suspect:", suspect, "\n")
+cat("Pathological:", pathological, "\n")
+
+# Vẽ biểu đồ cột cho số lượng các trạng thái sức khỏe thai nhi
+par(mfrow = c(1, 2))  # Chia màn hình thành 2 cột
+
+# Vẽ biểu đồ cột
+barplot(table(data$fetal_health),
+        main = "Fetal Health Count",
+        xlab = "Fetal Health",
+        ylab = "Cases",
+        col = c("#5F9EA0", "#B0E0E6", "#ADD8E6"))
+
+# Vẽ biểu đồ tròn
+pie(fetal_health_counts,
+    labels = names(fetal_health_counts),
+    col = c("#5F9EA0", "#B0E0E6", "#ADD8E6"),
+    main = "Fetal State Distribution")
+
+
+```
+
+```{r cars}
+# Cài đặt và gọi ggplot2 nếu chưa có
+# install.packages("ggplot2")
+library(ggplot2)
+
+# Vẽ histogram cho mỗi cột trong dataframe
+for (col in colnames(data)) {
+  if (is.numeric(data[[col]])) {  # Kiểm tra nếu cột là số
+    p <- ggplot(data, aes_string(x = col)) +
+      geom_histogram(fill = "#5F9EA0", color = "black", bins = 10) +
+      labs(title = paste("Histogram of", col), x = col, y = "Frequency") +
+      theme_minimal()
+    print(p)  # Hiển thị biểu đồ
+  }
+}
+
+
+```
+
+
+```{r cars}
+
+# Chuyển cột mục tiêu thành numeric nếu đang là factor
+data$fetal_health <- as.numeric(as.character(data$fetal_health))
+
+# Lấy các cột numeric
+numeric_data <- data %>% select(where(is.numeric))
+
+# Tính ma trận tương quan
+numeric_corr <- cor(numeric_data, use = "complete.obs")
+
+# Sắp xếp các tương quan giảm dần theo fetal_health (trừ chính nó)
+sorted_corr <- sort(numeric_corr[, "fetal_health"], decreasing = TRUE)
+
+# Lấy tên đặc trưng có tương quan cao nhất ngoại trừ chính fetal_health
+top_feature <- names(sorted_corr)[names(sorted_corr) != "fetal_health"][1]
+
+# Tạo heatmap chỉ cho biến đó và fetal_health
+corr_subset <- numeric_corr[c("fetal_health", top_feature), c("fetal_health", top_feature)]
+
+# Vẽ heatmap
+corrplot(corr_subset, method = "color", 
+         col = colorRampPalette(c("white", "#5F9EA0"))(200), 
+         addCoef.col = "black",
+         tl.col = "black", 
+         tl.srt = 0,
+         title = "Numerical feature correlation with fetal_health",
+         mar = c(1, 1, 3, 1))
+```
+
+
+```{r cars}
+library(formattable)
+
+# Tính ma trận tương quan
+numeric_corr <- cor(data %>% select(where(is.numeric)), use = "complete.obs")
+
+# Lấy tương quan với fetal_health và sắp xếp giảm dần
+num_feature <- sort(numeric_corr[, "fetal_health"], decreasing = TRUE)
+
+# Lấy top 20 đặc trưng (trừ chính nó nếu cần)
+top_20 <- head(num_feature, 20)
+
+# Chuyển thành data frame
+top_20_df <- data.frame(Feature = names(top_20), Correlation = as.numeric(top_20))
+
+# Hiển thị có tô màu nền
+formattable(top_20_df, list(
+  Correlation = color_tile("#FFFFFF", "#5F9EA0")
+))
+```
+
+```{r cars}
+# Load required packages
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("reshape2")) install.packages("reshape2")
+library(ggplot2)
+library(reshape2)
+
+# Assuming 'data' is your data frame (replace 'data' with your actual data frame name)
+# Select the first 20 columns (or choose based on domain knowledge)
+data_subset <- data[, 1:20]
+corr_matrix <- cor(data_subset)
+# Melt the correlation matrix into a long format for ggplot2
+corr_melted <- melt(corr_matrix)  # Fixed: Removed 'c' and corrected to 'corr_matrix'
+
+# Create the heatmap
+p <- ggplot(corr_melted, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(value, 2)), size = 4) +  # Annotations with 2 decimal places
+  scale_fill_gradientn(colors = c("#E6F3E7", "#A3D8C3", "#4CAF50", "#1C8B4C")) +  # GnBu-like gradient
+  labs(title = "Correlation Matrix Heatmap", x = "", y = "") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+    axis.text = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+# Set figure size (12x10 inches) and display the plot
+ggsave("correlation_heatmap.png", plot = p, width = 12, height = 10, units = "in", dpi = 300)
+print(p)
+
+```
+
+```{r}
+fetal_health <- read.csv("fetal_health.csv")
+#Chuẩn hóa cột fetal heath thành factor vector 1 2 3 thành bình thường bất thường
+fetal_health$fetal_health <- factor(fetal_health$fetal_health, 
+                          levels = c(1, 2, 3), 
+                          labels = c("Bình thường", "Nghi ngờ", "Bất thường"))
+# Loại bỏ dòng trùng lặp
+fetal_health_cleaned <- fetal_health[!duplicated(fetal_health), ]
+write.table(fetal_health_cleaned, file = "fetal_health_cleaned.csv",
+            sep = ",", row.names = F)
+df <- read.csv("fetal_health_cleaned.csv")
+head(df)
+
+
+
+
+
+
+```
+
+
+
+```{r}
+# Đọc file CSV
+```
+
+
+```{r}
+data <- read.csv("fetal_health_cleaned.csv", stringsAsFactors = FALSE)
+
+# Hiển thị vài dòng đầu tiên của dữ liệu
+head(data)
+
+# Xem tên các cột
+colnames(data)
+
+# Kiểm tra cấu trúc dữ liệu
+str(data)
+View(data)
+
+```
+#Gồm 22 cột:
+#Baseline.vaule: Nhịp tim trung bình của thai nhi.
+#accelerations: 
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(x = baseline.value)) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+  theme_minimal()
+
+```
+#bảng thống kê số lượng thai nhi có nhịp tim trong khoảng giá trị đó.
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(x = accelerations)) +
+  geom_histogram(bins = 15, fill = "skyblue", color = "black") +
+  theme_minimal()
+```
+```{r}
+library(ggplot2)
+ggplot(data, aes(x = fetal_movement)) +
+  geom_histogram(bins = 10, fill = "skyblue", color = "black") +
+  theme_minimal()
+```
+
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(x = as.factor(fetal_health), y = baseline.value, fill = as.factor(fetal_health))) +
+  geom_boxplot() +
+  labs(x = "Fetal Health", y = "Baseline Heart Rate")
+```
+# Từ bảng data ta có thể thấy được những thai nhi thuộc nhóm bất thường thường có nhịp tim rất thấp so với các nhóm khác, trung bình khoảng 130bpm và có nhiều outliers rất thấp
+# Còn nhóm thuộc nghi ngờ đa phần nhịp tim rất cao và trung vị khoảng 145
+
+
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(x = uterine_contractions, y = fetal_movement, color = as.factor(fetal_health))) +
+  geom_point(alpha = 0.6) +
+  theme_minimal()
+
+```
+#uterine_contractions:mức độ co bóp tử cung
+#fetal_movement:cường độ chuyển độ của thai nhi
+#Đa số chỉ số co bóp tử cung đều dưới 0.01, còn mức độ chuyển động của thai nhi thì dưới 0.1 và có một số chuyển động mạnh giao động từ 0.35-0.5
+# => Thai nhi bình thường thì thường chuyển động khi tử cung co thắt ít hay không co thắt và khi tử cung co thắt càng mạnh thì hầu như thai nhi không có dấu hiệu chuyển động.
+
+
+```{r}
+data$severe_group <- cut(data$severe_decelerations, breaks = c(-Inf, 0, 0.1, Inf), labels = c("None", "Low", "High"))
+
+ggplot(data, aes(x = severe_group, y = prolongued_decelerations, fill = severe_group)) +
+  geom_boxplot() +
+  labs(x = "Severe Deceleration Level", y = "Prolonged Decelerations") +
+  theme_minimal()
+
+
+```
+
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(x = as.factor(fetal_health))) +
+  geom_bar(fill = "coral") +
+  labs(x = "Fetal Health", y = "Count")
+
+
+```
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(x = accelerations, y = abnormal_short_term_variability)) +
+  geom_point(alpha = 0.6, color = "forestgreen") +
+  geom_smooth(method = "lm", color = "darkred") +
+  theme_minimal()
+
+```
+# Đường hồi quy có xu hướng đi xuống → nghĩa là khi accelerations tăng lên thì abnormal_short_term_variability có xu hướng giảm.
+#Nói cách khác:
+#Thai nhi có nhiều lần tăng nhịp tim hơn thì thường ít có bất thường trong biến thiên nhịp tim ngắn hạn.
+#Điều này phù hợp với y văn: tăng nhịp tim (accelerations) là một dấu hiệu tốt cho sức khỏe thai nhi, và ít bất thường trong biến thiên ngắn hạn.
+
+
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(x = histogram_width, y = histogram_variance)) +
+  geom_bin2d(bins = 25) +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  theme_minimal()
+
+```
+#Biều đồ phân tán giữa mức độ phân tách nhịp tim và độ biến thiên nhịp tim
+#=> Biểu đồ cho thấy có một mối quan hệ dương đáng kể giữa histogram_width và histogram_variance. Điều này có nghĩa là khi chiều rộng histogram tăng lên, phương sai histogram cũng có xu hướng tăng theo. 
+
+
+```{r}
+library(ggplot2)
+library(reshape2)
+
+# Giữ lại các cột số
+df_numeric <- df[sapply(df, is.numeric)]
+
+# Tính ma trận tương quan
+df_cor <- cor(df_numeric)
+
+# Chuyển sang dạng long format
+df_long <- melt(df_cor)
+
+# Vẽ heatmap bằng ggplot2
+ggplot(df_long, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(value, 2)), size = 3, color = "black") +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  theme_minimal() +
+  labs(
+    title = "Biểu đồ Heatmap Tương Quan Giữa Các Đặc Trưng",
+    x = "Đặc trưng", y = "Đặc trưng"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+```{r}
+ggplot(data, aes(x = as.factor(fetal_health), y = mean_value_of_short_term_variability, fill = as.factor(fetal_health))) +
+  geom_violin(trim = FALSE, alpha = 0.6) +
+  geom_boxplot(width = 0.1, fill = "white", outlier.shape = NA) +
+  theme_minimal() +
+  labs(title = "Violin Plot: Short Term Variability theo fetal_health",
+       x = "Fetal Health", y = "Mean Value of Short Term Variability", fill = "Fetal Health")
+
+
+```

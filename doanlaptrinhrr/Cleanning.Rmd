@@ -1,0 +1,72 @@
+---
+title: "Cleanning"
+output: html_document
+date: "2025-04-02"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# List các gói cần cài đặt
+packages <- c("knitr", "readr", "reshape2", "corrplot", "dplyr", "gridExtra", "caret", "ROSE", "naivebayes", "yardstick", "party", "rpart", "rpart.plot", "randomForest" , "reshape2", "ranger")
+
+# Kiểm tra và cài đặt gói nếu chưa tồn tại
+for (package in packages) {
+  if (!requireNamespace(package, quietly = TRUE)) {
+    install.packages(package)
+  }
+}
+library(readr)
+library(knitr)
+library(ggplot2)
+library(corrplot)
+library(dplyr)
+library(gridExtra)
+library(caret)
+library(ROSE)
+library(naivebayes)
+library(yardstick)
+library(party)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(reshape2)
+library(ranger)
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+fetal_health <- read.csv("fetal_health.csv")
+#Chuẩn hóa cột fetal heath thành factor vector 1 2 3 thành bình thường bất thường
+fetal_health$fetal_health <- factor(fetal_health$fetal_health, 
+                          levels = c(1, 2, 3), 
+                          labels = c("Bình thường", "Nghi ngờ", "Bất thường"))
+# Loại bỏ dòng trùng lặp
+fetal_health_cleaned <- fetal_health[!duplicated(fetal_health), ]
+write.table(fetal_health_cleaned, file = "fetal_health_cleaned.csv",
+            sep = ",", row.names = F)
+df <- read.csv("fetal_health_cleaned.csv")
+head(df)
+
+
+
+
+
+
+```
+
+
+
+
+
+
+
+
+

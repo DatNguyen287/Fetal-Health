@@ -1,0 +1,131 @@
+---
+title: "Cleanning"
+output: html_document
+date: "2025-04-02"
+---
+```{r}
+fetal_health <- read.csv("fetal_health.csv")
+#Chuẩn hóa cột fetal heath thành factor vector 1 2 3 thành bình thường bất thường
+fetal_health$fetal_health <- factor(fetal_health$fetal_health, 
+                          levels = c(1, 2, 3), 
+                          labels = c("Bình thường", "Nghi ngờ", "Bất thường"))
+# Loại bỏ dòng trùng lặp
+fetal_health_cleaned <- fetal_health[!duplicated(fetal_health), ]
+write.table(fetal_health_cleaned, file = "fetal_health_cleaned.csv",
+            sep = ",", row.names = F)
+df <- read.csv("fetal_health_cleaned.csv")
+head(df)
+
+
+
+
+
+
+```
+
+
+
+```{r}
+# Đọc file CSV
+```
+
+
+```{r}
+data <- read.csv("fetal_health_cleaned.csv", stringsAsFactors = FALSE)
+
+# Hiển thị vài dòng đầu tiên của dữ liệu
+head(data)
+
+# Xem tên các cột
+colnames(data)
+
+# Kiểm tra cấu trúc dữ liệu
+str(data)
+View(data)
+
+```
+#Gồm 22 cột:
+#Baseline.vaule: Nhịp tim trung bình của thai nhi.
+#accelerations: 
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(x = baseline.value)) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+  theme_minimal()
+
+```
+#bảng thống kê số lượng thai nhi có nhịp tim trong khoảng giá trị đó.
+
+
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(x = as.factor(fetal_health), y = baseline.value, fill = as.factor(fetal_health))) +
+  geom_boxplot() +
+  labs(x = "Fetal Health", y = "Baseline Heart Rate")
+```
+# Từ bảng data ta có thể thấy được những thai nhi thuộc nhóm bất thường thường có nhịp tim rất thấp so với các nhóm khác, trung bình khoảng 130bpm và có nhiều outliers rất thấp
+# Còn nhóm thuộc nghi ngờ đa phần nhịp tim rất cao và trung vị khoảng 145
+
+
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(x = uterine_contractions, y = fetal_movement, color = as.factor(fetal_health))) +
+  geom_point(alpha = 0.6) +
+  theme_minimal()
+
+```
+#uterine_contractions:mức độ co bóp tử cung
+#fetal_movement:cường độ chuyển độ của thai nhi
+#Đa số chỉ số co bóp tử cung đều dưới 0.01, còn mức độ chuyển động của thai nhi thì dưới 0.1 và có một số chuyển động mạnh giao động từ 0.35-0.5
+# => Thai nhi bình thường thì thường chuyển động khi tử cung co thắt ít hay không co thắt và khi tử cung co thắt càng mạnh thì hầu như thai nhi không có dấu hiệu chuyển động.
+
+
+```{r}
+data$severe_group <- cut(data$severe_decelerations, breaks = c(-Inf, 0, 0.1, Inf), labels = c("None", "Low", "High"))
+
+ggplot(data, aes(x = severe_group, y = prolongued_decelerations, fill = severe_group)) +
+  geom_boxplot() +
+  labs(x = "Severe Deceleration Level", y = "Prolonged Decelerations") +
+  theme_minimal()
+
+
+```
+
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(x = as.factor(fetal_health))) +
+  geom_bar(fill = "coral") +
+  labs(x = "Fetal Health", y = "Count")
+
+
+```
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(x = accelerations, y = abnormal_short_term_variability)) +
+  geom_point(alpha = 0.6, color = "forestgreen") +
+  geom_smooth(method = "lm", color = "darkred") +
+  theme_minimal()
+
+```
+# Đường hồi quy có xu hướng đi xuống → nghĩa là khi accelerations tăng lên thì abnormal_short_term_variability có xu hướng giảm.
+#Nói cách khác:
+#Thai nhi có nhiều lần tăng nhịp tim hơn thì thường ít có bất thường trong biến thiên nhịp tim ngắn hạn.
+#Điều này phù hợp với y văn: tăng nhịp tim (accelerations) là một dấu hiệu tốt cho sức khỏe thai nhi, và ít bất thường trong biến thiên ngắn hạn.
+
+
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(x = histogram_width, y = histogram_variance)) +
+  geom_bin2d(bins = 25) +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  theme_minimal()
+
+```
+#Biều đồ phân tán giữa mức độ phân tách nhịp tim và độ biến thiên nhịp tim
+#=> Biểu đồ cho thấy có một mối quan hệ dương đáng kể giữa histogram_width và histogram_variance. Điều này có nghĩa là khi chiều rộng histogram tăng lên, phương sai histogram cũng có xu hướng tăng theo. 

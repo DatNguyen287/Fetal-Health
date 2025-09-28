@@ -1,0 +1,33 @@
+---
+title: "Cleanning"
+output: html_document
+date: "2025-04-02"
+---
+```{r}
+fetal_health <- read.csv("fetal_health.csv")
+#Chuẩn hóa cột fetal heath thành factor vector 1 2 3 thành bình thường bất thường
+fetal_health$fetal_health <- factor(fetal_health$fetal_health, 
+                          levels = c(1, 2, 3), 
+                          labels = c("Bình thường", "Nghi ngờ", "Bất thường"))
+# Loại bỏ dòng trùng lặp
+fetal_health_cleaned <- fetal_health[!duplicated(fetal_health), ]
+write.table(fetal_health_cleaned, file = "fetal_health_cleaned.csv",
+            sep = ",", row.names = F)
+df <- read.csv("fetal_health_cleaned.csv")
+head(df)
+
+
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
